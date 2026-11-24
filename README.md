@@ -16,9 +16,11 @@ The design is the companion's [`docs/SERVER.md`](https://github.com/CodeMusic/da
   memory or disk, hot, or on battery below the owner's floor.
 - **ARETE and ASK**: each finished job pays ARETE (once, by its id); ASK puts one short question to the household's
   mind, from ten free asks a day and then ARETE.
+- **Builds**: with Docker on an arm64 machine, the Pi devices' program for a hub whose builds come from volunteers --
+  one commit, one board, by the companion's own recipe, with no network while it compiles.
 - **A menu-bar dot** (`mac/Tray.swift`): green working or ready, amber resting, grey not running; pause and resume.
 
-Builds, memory and THE COMMONS are drawn on the dashboard as *not yet*.
+Memory and THE COMMONS are drawn on the dashboard as *not yet*.
 
 ## Run it
 

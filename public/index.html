@@ -65,7 +65,8 @@
     <h2>WORK</h2>
     <label class="sw"><span>Processing <small>THE MESH's jobs: conversions and exports, files in and out, nothing else</small></span>
       <span><span class="tag" id="ffmpeg"></span> <input type="checkbox" id="processing"></span></label>
-    <label class="sw soon"><span>Builds <small>the Pi program (C-515), signed, in a container</small></span><span class="tag">not yet</span></label>
+    <label class="sw"><span>Builds <small id="buildWhat">the Pi devices' program, for the household, in a container</small></span>
+      <span><span class="tag" id="buildTag"></span> <input type="checkbox" id="builds"></span></label>
     <label class="sw"><span>Thinking <small id="thinkWhat">a model on this computer, lent to the household's talk</small></span>
       <span><span class="tag" id="thinkTag"></span> <input type="checkbox" id="thinking"></span></label>
     <div id="thinkPick" class="row" style="display:none"><span class="k">Model</span><select id="thinkModel"></select></div>
@@ -140,7 +141,7 @@ function draw(v) {
   $("who").textContent = `${v.name} · node ${v.id}`;
   $("ffmpeg").textContent = v.machine.ffmpeg ? "ffmpeg found" : "needs ffmpeg"; $("ffmpeg").className = "tag" + (v.machine.ffmpeg ? " ok" : "");
   if (!editing) {
-    $("processing").checked = v.work.processing; $("thinking").checked = v.work.thinking;
+    $("processing").checked = v.work.processing; $("thinking").checked = v.work.thinking; $("builds").checked = v.work.builds;
     $("batteryFloor").value = v.batteryFloor === null ? "never" : String(v.batteryFloor); $("diskMinGb").value = v.diskMinGb;
     for (const r of document.querySelectorAll("input[name=mode]")) r.checked = r.value === v.mode;
     $("idleMin").value = v.idleMin; $("from").value = v.hours.from; $("to").value = v.hours.to;
@@ -157,6 +158,11 @@ function draw(v) {
   const opts = t.found.flatMap((f) => f.models);
   if ($("thinkModel").dataset.k !== opts.join("|")) { $("thinkModel").innerHTML = opts.map((m) => `<option>${m.replace(/[<&]/g, "")}</option>`).join(""); $("thinkModel").dataset.k = opts.join("|"); }
   $("thinkModel").value = t.model;
+  const bd = v.build;
+  $("buildTag").textContent = !bd.ok ? "needs Docker" : bd.lending ? (bd.now ? "building" : "lending") : "Docker found";
+  $("buildTag").className = "tag" + (bd.lending ? " ok" : "");
+  $("buildWhat").textContent = bd.now || (bd.ok ? `the Pi devices' program, in ${bd.why}, no network while it builds` : bd.why || "the Pi devices' program, in a container");
+  $("builds").disabled = !bd.ok && !v.work.builds;
   $("sandbox").textContent = v.sandbox === "none" ? "its own folder" : v.sandbox;
   $("sandbox").title = v.sandbox === "none" ? "no sandbox on this system yet" : "no network, writes only in the job's folder, your home unreadable";
   $("sandbox").className = "tag" + (v.sandbox === "none" ? "" : " ok");
@@ -178,6 +184,7 @@ const settings = (b) => post("/api/settings", b).then(draw);
 $("processing").onchange = (e) => settings({ processing: e.target.checked });
 for (const r of document.querySelectorAll("input[name=mode]")) r.onchange = () => settings({ mode: r.value });
 $("thinking").onchange = (e) => settings({ thinking: e.target.checked });
+$("builds").onchange = (e) => settings({ builds: e.target.checked });
 $("thinkModel").onchange = (e) => settings({ thinkModel: e.target.value });
 $("batteryFloor").onchange = (e) => settings({ batteryFloor: e.target.value === "never" ? "never" : Number(e.target.value) });
 const askNow = () => {

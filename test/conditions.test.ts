@@ -41,8 +41,8 @@ test("settings from the dashboard are checked; the kinds not built stay off", ()
   assert.equal(c.mode, "idle-plugged");
   assert.equal(c.idleMin, 120);
   assert.equal(c.hours.from, 0);
-  assert.equal(c.work.builds, false);
-  assert.equal(c.work.thinking, true);        // thinking is built (C-542); builds are not
+  assert.equal(c.work.builds, true);           // builds are built too (C-541)
+  assert.equal(c.work.thinking, true);
   assert.equal(apply(defaults(), { batteryFloor: 40 }).batteryFloor, 40);
   assert.equal(apply(apply(defaults(), { batteryFloor: 40 }), { batteryFloor: "never" }).batteryFloor, null);
   assert.equal(c.commons, false);

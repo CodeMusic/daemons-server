@@ -9,6 +9,7 @@ import { MeshWorker, pair } from "./mesh.ts";
 import { sandboxKind } from "./sandbox.ts";
 import { findModels, measure, think, type Found } from "./think.ts";
 import { Ledger, RATES, payForProcessing } from "./arete.ts";
+import { canBuild, defaultLimits } from "./build.ts";
 
 const PORT = Number(process.env.DAEMONS_SERVER_PORT) || 4770;
 let cfg: Config = load();
@@ -24,8 +25,9 @@ const SANDBOX = sandboxKind();
 // ARETE for each job finished (paid once by its id)
 worker.onDone = (d) => {
   if (!d.ok) return;
-  const amount = d.kind === "think" ? RATES.thought : payForProcessing(d.ms, power());
-  if (ledger.award(`mesh:${d.id}`, amount, `${d.kind === "think" ? "a thought" : "processing"}: ${d.title}`)) d.arete = amount;
+  const amount = d.kind === "think" ? RATES.thought : d.kind === "build" ? RATES.build : payForProcessing(d.ms, power());
+  const what = d.kind === "think" ? "a thought" : d.kind === "build" ? "a build" : "processing";
+  if (ledger.award(`mesh:${d.id}`, amount, `${what}: ${d.title}`)) d.arete = amount;
 };
 
 // ---- THINKING: the local model, found and measured (C-542) ----
@@ -47,6 +49,15 @@ async function lookForModels() {
 }
 setInterval(() => void lookForModels(), 60_000);
 void lookForModels();
+
+// ---- BUILDS: a container runtime that answers, while the switch is on (C-541) ----
+let buildCheck = { ok: false, why: "" };
+async function lookForBuilder() {
+  buildCheck = await canBuild();
+  worker.builds = cfg.work.builds && buildCheck.ok ? { ...defaultLimits(), cpus: Math.max(1, Math.min(defaultLimits().cpus, cfg.most * 2)) } : null;
+}
+setInterval(() => void lookForBuilder(), 60_000);
+void lookForBuilder();
 
 // ---- the WHEN loop: decide, and ask THE MESH for work only while allowed ----
 async function tick() {
@@ -87,6 +98,7 @@ function state() {
     mode: cfg.mode, idleMin: cfg.idleMin, hours: cfg.hours, most: cfg.most, maxMost: Math.max(1, Math.floor(cpus().length / 2)),
     batteryFloor: cfg.batteryFloor, diskMinGb: cfg.diskMinGb, memRestPct: cfg.memRestPct,
     work: cfg.work, commons: cfg.commons, pausedUntil, sandbox: SANDBOX,
+    build: { ...buildCheck, lending: !!worker.builds, now: worker.building },
     think: { ...cfg.think, found: models.map((f) => ({ server: f.server, models: f.models })), check: thinkCheck, lending: !!worker.thinker },
     machine: { cores: worker.cores, speed: worker.speed, power: power(), memGb: Math.round(totalmem() / 2 ** 30), ffmpeg: !!worker.ffmpeg, platform: process.platform },
     mesh: { holds: worker.holds, lastHeard: worker.lastHeard, lastError: worker.lastError },
@@ -115,6 +127,7 @@ const server = createServer(async (req, res) => {
     if (req.method === "POST" && path === "/api/settings") {
       const was = cfg; cfg = apply(cfg, await body(req)); save(cfg);
       if (was.work.thinking !== cfg.work.thinking || was.think.model !== cfg.think.model) await lookForModels();
+      if (was.work.builds !== cfg.work.builds) await lookForBuilder();
       return send(200, state());
     }
     if (req.method === "POST" && path === "/api/pause") {

@@ -55,7 +55,8 @@ export function apply(c: Config, p: Record<string, unknown>): Config {
   const ht = int(p.to, 0, 23); if (ht !== null && p.to !== undefined) n.hours.to = ht;
   const mm = int(p.most, 1, Math.max(1, Math.floor(cpus().length / 2))); if (mm !== null && p.most !== undefined) n.most = mm;
   if (typeof p.processing === "boolean") n.work.processing = p.processing;
-  if (typeof p.thinking === "boolean") n.work.thinking = p.thinking;          // builds and memory: not built yet
+  if (typeof p.thinking === "boolean") n.work.thinking = p.thinking;
+  if (typeof p.builds === "boolean") n.work.builds = p.builds;                // memory: not built yet
   if (p.batteryFloor === "never" || p.batteryFloor === null) n.batteryFloor = null;
   else if (p.batteryFloor !== undefined) { const b = int(p.batteryFloor, 10, 100); if (b !== null) n.batteryFloor = b; }
   const dm = int(p.diskMinGb, 1, 500); if (dm !== null && p.diskMinGb !== undefined) n.diskMinGb = dm;

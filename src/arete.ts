@@ -6,7 +6,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 export type Entry = { id: string; at: string; amount: number; why: string };
-export const RATES = { processingPerMinute: 1, thought: 2, ask: 1, allowancePerDay: 10 };   // DRAFT
+export const RATES = { processingPerMinute: 1, thought: 2, build: 10, ask: 1, allowancePerDay: 10 };   // DRAFT
 
 // a processing job pays by the work it took on a machine of power 1 (its minutes here x this host's power / 10), so a
 // faster machine is given more jobs, not paid more for each; at least one

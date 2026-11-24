@@ -4,6 +4,7 @@
 // of its own, sends the outputs back, and removes the folder. Same protocol as mesh_worker_main.ts.
 import { execFile, execFileSync } from "node:child_process";
 import { wrap } from "./sandbox.ts";
+import { okBuild, runBuild, type Limits } from "./build.ts";
 import { createHash } from "node:crypto";
 import { createReadStream, createWriteStream, mkdtempSync, rmSync, statSync } from "node:fs";
 import { cpus, tmpdir } from "node:os";
@@ -45,11 +46,15 @@ export class MeshWorker {
   private hub: () => string; private key: () => string; private id: () => string; private name: () => string;
   thinker: Thinker | null = null;              // set while THINKING is on and a local model answers (C-542)
   processing = true;                           // PROCESSING's switch
+  builds: Limits | null = null;                // set while BUILDS is on and a container runtime answers (C-541)
+  building = "";                               // what the build in hand is doing now
   onDone: (d: Done) => void = () => {};
   constructor(hub: () => string, key: () => string, id: () => string, name: () => string) {
     this.hub = hub; this.key = key; this.id = id; this.name = name;
   }
-  caps(): string[] { return [...(this.processing && this.ffmpeg ? ["ffmpeg"] : []), ...(this.thinker ? ["think"] : [])]; }
+  caps(): string[] {
+    return [...(this.processing && this.ffmpeg ? ["ffmpeg"] : []), ...(this.thinker ? ["think"] : []), ...(this.builds ? ["build:pizero"] : [])];
+  }
 
   private auth() { return { authorization: `Bearer ${this.key()}` }; }
   private async post(path: string, body: unknown): Promise<any> {
@@ -84,8 +89,12 @@ export class MeshWorker {
         end(true);
         return;
       }
-      if (job.kind !== "ffmpeg" || !this.processing || !safeArgs(job.args) || !this.ffmpeg) throw new Error("refused: not a job this host runs");
       const files: Record<string, string> = {};
+      if (job.kind === "build") {                // C-541: the Pi program, by its repository's own recipe, in a container
+        if (!this.builds || !okBuild(job.args)) throw new Error("refused: not a build this host runs");
+        Object.assign(files, await runBuild(job.args, dir, this.builds, (s) => (this.building = s)));
+      } else {
+      if (job.kind !== "ffmpeg" || !this.processing || !safeArgs(job.args) || !this.ffmpeg) throw new Error("refused: not a job this host runs");
       for (const name of Object.keys(job.inputs)) {
         const to = join(dir, `in-${name.replace(/[^A-Za-z0-9._-]/g, "_")}`);
         const r = await fetch(`${this.hub()}/api/mesh/in/${job.id}/${encodeURIComponent(name)}`, { headers: this.auth(), signal: AbortSignal.timeout(600_000) });
@@ -97,6 +106,7 @@ export class MeshWorker {
       const w = wrap(this.ffmpeg, ["-hide_banner", "-loglevel", "error", "-y", ...argvFor(job.args, files)], dir);   // C-546
       await new Promise<void>((ok, fail) => execFile(w.cmd, w.args, { timeout: 3_600_000, cwd: dir },
         (e, _o, err) => (e ? fail(new Error(String(err || e.message).slice(-200))) : ok())));
+      }
       for (const name of Object.keys(job.outputs)) {
         const f = files[`out:${name}`];
         const r = await fetch(`${this.hub()}/api/mesh/out/${job.id}/${encodeURIComponent(name)}?node=${this.id()}`, {
@@ -111,7 +121,7 @@ export class MeshWorker {
       await this.post("/api/mesh/done", { id: job.id, node: this.id(), ok: false, error: msg }).catch(() => {});
       end(false, msg);
     } finally {
-      this.holds--; this.done = this.done.slice(0, 50);
+      this.holds--; this.done = this.done.slice(0, 50); if (job.kind === "build") this.building = "";
       rmSync(dir, { recursive: true, force: true });
     }
   }
