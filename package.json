@@ -1,0 +1,13 @@
+{
+  "name": "daemons-server",
+  "version": "0.1.0",
+  "description": "DAEMONS Server: makes a computer a host of the DAEMONS companion's mind -- THE MESH's work, on its owner's terms, with a dashboard on localhost (DRAFT name)",
+  "type": "module",
+  "private": true,
+  "license": "MIT",
+  "engines": { "node": ">=22.18" },
+  "scripts": {
+    "start": "node src/main.ts",
+    "test": "node --test test/*.test.ts"
+  }
+}

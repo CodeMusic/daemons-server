@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DAEMONS Server</title>
+<style>
+  :root { --bg:#f6f5f1; --card:#fff; --ink:#1d1d1b; --mute:#6c6b66; --line:#e3e1da; --on:#2f7d5b; --rest:#b7791f; --off:#9a988f; --accent:#4b4fb8; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#121314; --card:#1b1d1f; --ink:#ecebe6; --mute:#9b9a94; --line:#2b2e31; --on:#5cc08f; --rest:#e0a64a; --off:#6d6c67; --accent:#8b8ff0; } }
+  * { box-sizing:border-box }
+  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; }
+  header { padding:28px 16px 8px; max-width:980px; margin:0 auto; display:flex; align-items:baseline; gap:12px; flex-wrap:wrap }
+  h1 { font-size:20px; letter-spacing:.08em; margin:0 }
+  .sub { color:var(--mute); font-size:13px }
+  main { max-width:980px; margin:0 auto; padding:8px 16px 40px; display:grid; gap:14px; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)) }
+  section { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px 18px }
+  section.wide { grid-column:1/-1 }
+  h2 { font-size:12px; letter-spacing:.14em; color:var(--mute); margin:0 0 10px; font-weight:600 }
+  .now { display:flex; align-items:center; gap:14px }
+  .dot { width:14px; height:14px; border-radius:50%; background:var(--off); flex:none }
+  .dot.on { background:var(--on); box-shadow:0 0 0 6px color-mix(in srgb, var(--on) 20%, transparent) }
+  .dot.rest { background:var(--rest) }
+  .big { font-size:22px; font-weight:600 }
+  .row { display:flex; justify-content:space-between; gap:10px; padding:7px 0; border-top:1px solid var(--line) }
+  .row:first-of-type { border-top:0 }
+  .k { color:var(--mute) }
+  .tag { font-size:11px; letter-spacing:.08em; padding:2px 7px; border-radius:99px; border:1px solid var(--line); color:var(--mute); white-space:nowrap }
+  .tag.ok { color:var(--on); border-color:var(--on) }
+  label.sw { display:flex; justify-content:space-between; align-items:center; gap:10px; padding:8px 0; border-top:1px solid var(--line) }
+  label.sw:first-of-type { border-top:0 }
+  label.sw small { display:block; color:var(--mute); font-size:12px }
+  input[type=checkbox] { width:18px; height:18px; accent-color:var(--accent) }
+  .modes { display:grid; gap:6px }
+  .modes label { display:flex; gap:8px; align-items:flex-start; padding:8px; border:1px solid var(--line); border-radius:8px; cursor:pointer }
+  .modes label:has(input:checked) { border-color:var(--accent) }
+  .modes small { display:block; color:var(--mute); font-size:12px }
+  input[type=number], input[type=text] { font:inherit; color:inherit; background:transparent; border:1px solid var(--line); border-radius:6px; padding:4px 6px; width:70px }
+  input[type=text] { width:100% }
+  button { font:inherit; border:1px solid var(--line); background:transparent; color:inherit; border-radius:8px; padding:6px 12px; cursor:pointer }
+  button.primary { background:var(--accent); color:#fff; border-color:var(--accent) }
+  .btns { display:flex; gap:8px; flex-wrap:wrap; margin-top:10px }
+  table { width:100%; border-collapse:collapse; font-size:13px }
+  td, th { text-align:left; padding:6px 4px; border-top:1px solid var(--line) }
+  th { color:var(--mute); font-weight:500 }
+  .empty { color:var(--mute); font-size:13px }
+  .err { color:#c0392b; font-size:13px; margin-top:6px }
+  .soon { opacity:.55 }
+</style>
+</head>
+<body>
+<header><h1>DAEMONS SERVER</h1><span class="sub" id="who"></span></header>
+<main>
+  <section class="wide">
+    <h2>NOW</h2>
+    <div class="now"><div class="dot" id="dot"></div><div><div class="big" id="state">…</div><div class="sub" id="why"></div></div></div>
+    <div class="btns">
+      <button data-pause="60">Pause an hour</button><button data-pause="720">Pause till tomorrow</button><button data-pause="0">Resume</button>
+    </div>
+  </section>
+
+  <section>
+    <h2>WORK</h2>
+    <label class="sw"><span>Processing <small>THE MESH's jobs: conversions and exports, files in and out, nothing else</small></span>
+      <span><span class="tag" id="ffmpeg"></span> <input type="checkbox" id="processing"></span></label>
+    <label class="sw soon"><span>Builds <small>the Pi program (C-515), signed, in a container</small></span><span class="tag">not yet</span></label>
+    <label class="sw soon"><span>Thinking <small>a local model for the household's talk</small></span><span class="tag">not yet</span></label>
+    <label class="sw soon"><span>Memory <small>embeddings and the night's work</small></span><span class="tag">not yet</span></label>
+  </section>
+
+  <section>
+    <h2>WHEN</h2>
+    <div class="modes">
+      <label><input type="radio" name="mode" value="idle-plugged"><span>Idle and plugged in <small>after <input type="number" id="idleMin" min="1" max="120"> min away, on power; stops when you return</small></span></label>
+      <label><input type="radio" name="mode" value="scheduled"><span>Scheduled hours <small>from <input type="number" id="from" min="0" max="23"> to <input type="number" id="to" min="0" max="23"> o'clock</small></span></label>
+      <label><input type="radio" name="mode" value="always"><span>Always, under caps <small>at the lowest priority</small></span></label>
+    </div>
+    <div class="row" style="margin-top:8px"><span class="k">Jobs at once</span><span><input type="number" id="most" min="1"> <span class="sub" id="maxMost"></span></span></div>
+    <div class="row"><span class="k">Rests below</span><span>20% of memory free</span></div>
+  </section>
+
+  <section>
+    <h2>CIRCLES</h2>
+    <div class="row"><span class="k">Household</span><span id="household"></span></div>
+    <div id="pairBox">
+      <input type="text" id="hub" placeholder="http://daemons-hearth:4730" style="margin:6px 0">
+      <input type="text" id="code" placeholder="pairing code from THE ENGINE ROOM">
+      <div class="btns"><button class="primary" id="pair">Pair</button></div>
+    </div>
+    <div class="btns" id="forgetBox"><button id="forget">Forget this household</button></div>
+    <div class="row soon" style="margin-top:8px"><span class="k">THE COMMONS</span><span class="tag">not yet</span></div>
+    <div class="err" id="pairErr"></div>
+  </section>
+
+  <section>
+    <h2>THIS MACHINE</h2>
+    <div class="row"><span class="k">Cores</span><span id="cores"></span></div>
+    <div class="row"><span class="k">Speed</span><span id="speed"></span></div>
+    <div class="row"><span class="k">Power</span><span id="power"></span></div>
+    <div class="row"><span class="k">Memory free</span><span id="mem"></span></div>
+    <div class="row"><span class="k">Away for</span><span id="idle"></span></div>
+    <div class="row"><span class="k">On power</span><span id="ac"></span></div>
+  </section>
+
+  <section class="soon">
+    <h2>ARETE AND ASK</h2>
+    <div class="row"><span class="k">ARETE</span><span class="tag">not yet</span></div>
+    <p class="empty">Work done will pay ARETE on PRAXIS's ledger; asking the network will spend it.</p>
+  </section>
+
+  <section class="wide">
+    <h2>WHAT IT DID</h2>
+    <div id="done"></div>
+  </section>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+let s = null, editing = false;
+const post = (p, b) => fetch(p, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(b ?? {}) })
+  .then(async (r) => { const j = await r.json(); if (!r.ok) throw new Error(j.error || r.status); return j; });
+const ago = (t) => { const x = Math.round((Date.now() - t) / 1000); return x < 60 ? `${x} s ago` : `${Math.round(x / 60)} min ago`; };
+const mins = (sec) => sec == null ? "unknown" : sec < 60 ? `${sec} s` : `${Math.floor(sec / 60)} min`;
+
+function draw(v) {
+  s = v;
+  const working = v.verdict.work, has = v.mesh.holds > 0;
+  $("dot").className = "dot " + (has || working ? "on" : v.paired ? "rest" : "");
+  $("state").textContent = has ? `Working: ${v.mesh.holds} job${v.mesh.holds > 1 ? "s" : ""}` : working ? "Ready for work" : "Resting";
+  $("why").textContent = v.verdict.why + (v.mesh.lastHeard ? ` · THE MESH heard it ${ago(v.mesh.lastHeard)}` : "") + (v.mesh.lastError ? ` · ${v.mesh.lastError}` : "");
+  $("who").textContent = `${v.name} · node ${v.id}`;
+  $("ffmpeg").textContent = v.machine.ffmpeg ? "ffmpeg found" : "needs ffmpeg"; $("ffmpeg").className = "tag" + (v.machine.ffmpeg ? " ok" : "");
+  if (!editing) {
+    $("processing").checked = v.work.processing;
+    for (const r of document.querySelectorAll("input[name=mode]")) r.checked = r.value === v.mode;
+    $("idleMin").value = v.idleMin; $("from").value = v.hours.from; $("to").value = v.hours.to;
+    $("most").value = v.most; $("most").max = v.maxMost; $("maxMost").textContent = `of ${v.maxMost} at most`;
+    if (!$("hub").value) $("hub").value = v.hub;
+  }
+  $("household").innerHTML = v.paired ? `<span class="tag ok">paired</span> ${v.hub.replace(/^https?:\/\//, "")}` : `<span class="tag">not paired</span>`;
+  $("pairBox").style.display = v.paired ? "none" : ""; $("forgetBox").style.display = v.paired ? "" : "none";
+  $("cores").textContent = v.machine.cores; $("speed").textContent = v.machine.speed; $("power").textContent = v.machine.power;
+  $("mem").textContent = v.readings.memFreePct == null ? "unknown" : `${v.readings.memFreePct}% of ${v.machine.memGb} GB`;
+  $("idle").textContent = mins(v.readings.idleSec); $("ac").textContent = v.readings.onPower == null ? "unknown" : v.readings.onPower ? "yes" : "battery";
+  $("done").innerHTML = v.done.length
+    ? `<table><tr><th>When</th><th>Job</th><th>Took</th><th></th></tr>${v.done.map((d) => `<tr><td>${new Date(d.at).toLocaleTimeString()}</td><td>${d.title.replace(/[<&]/g, "")}</td><td>${(d.ms / 1000).toFixed(1)} s</td><td>${d.ok ? '<span class="tag ok">done</span>' : `<span class="tag">failed</span> ${(d.error || "").replace(/[<&]/g, "")}`}</td></tr>`).join("")}</table>`
+    : `<p class="empty">No jobs yet. THE MESH gives work to the node with the most potential free, so a quiet hour is normal.</p>`;
+}
+const refresh = () => fetch("/api/state").then((r) => r.json()).then(draw).catch(() => { $("state").textContent = "The agent is not running"; });
+const settings = (b) => post("/api/settings", b).then(draw);
+$("processing").onchange = (e) => settings({ processing: e.target.checked });
+for (const r of document.querySelectorAll("input[name=mode]")) r.onchange = () => settings({ mode: r.value });
+for (const id of ["idleMin", "from", "to", "most"]) {
+  $(id).onfocus = () => (editing = true);
+  $(id).onchange = (e) => { editing = false; settings({ [id]: Number(e.target.value) }); };
+}
+for (const b of document.querySelectorAll("[data-pause]")) b.onclick = () => post("/api/pause", { minutes: Number(b.dataset.pause) }).then(draw);
+$("pair").onclick = () => { $("pairErr").textContent = ""; post("/api/pair", { hub: $("hub").value.trim(), code: $("code").value }).then(draw).catch((e) => ($("pairErr").textContent = e.message)); };
+$("forget").onclick = () => post("/api/forget").then(draw);
+refresh(); setInterval(refresh, 2000);
+</script>
+</body>
+</html>
