@@ -45,6 +45,9 @@
   .empty { color:var(--mute); font-size:13px }
   .err { color:#c0392b; font-size:13px; margin-top:6px }
   .soon { opacity:.55 }
+  select { font:inherit; color:inherit; background:var(--card); border:1px solid var(--line); border-radius:6px; padding:3px 6px; max-width:200px }
+  .answer { margin-top:10px; font-size:14px }
+  .answer q { display:block; font-style:italic; margin-bottom:4px }
 </style>
 </head>
 <body>
@@ -63,7 +66,9 @@
     <label class="sw"><span>Processing <small>THE MESH's jobs: conversions and exports, files in and out, nothing else</small></span>
       <span><span class="tag" id="ffmpeg"></span> <input type="checkbox" id="processing"></span></label>
     <label class="sw soon"><span>Builds <small>the Pi program (C-515), signed, in a container</small></span><span class="tag">not yet</span></label>
-    <label class="sw soon"><span>Thinking <small>a local model for the household's talk</small></span><span class="tag">not yet</span></label>
+    <label class="sw"><span>Thinking <small id="thinkWhat">a model on this computer, lent to the household's talk</small></span>
+      <span><span class="tag" id="thinkTag"></span> <input type="checkbox" id="thinking"></span></label>
+    <div id="thinkPick" class="row" style="display:none"><span class="k">Model</span><select id="thinkModel"></select></div>
     <label class="sw soon"><span>Memory <small>embeddings and the night's work</small></span><span class="tag">not yet</span></label>
   </section>
 
@@ -75,7 +80,10 @@
       <label><input type="radio" name="mode" value="always"><span>Always, under caps <small>at the lowest priority</small></span></label>
     </div>
     <div class="row" style="margin-top:8px"><span class="k">Jobs at once</span><span><input type="number" id="most" min="1"> <span class="sub" id="maxMost"></span></span></div>
-    <div class="row"><span class="k">Rests below</span><span>20% of memory free</span></div>
+    <div class="row"><span class="k">On battery</span><span><select id="batteryFloor"><option value="never">never</option><option value="80">above 80%</option><option value="50">above 50%</option><option value="30">above 30%</option></select></span></div>
+    <div class="row"><span class="k">Keeps free</span><span><input type="number" id="diskMinGb" min="1" max="500"> GB of disk</span></div>
+    <div class="row"><span class="k">Rests below</span><span><span id="memRest"></span>% of memory free, or when hot</span></div>
+    <div class="row"><span class="k">Each job runs in</span><span class="tag" id="sandbox"></span></div>
   </section>
 
   <section>
@@ -101,10 +109,13 @@
     <div class="row"><span class="k">On power</span><span id="ac"></span></div>
   </section>
 
-  <section class="soon">
+  <section>
     <h2>ARETE AND ASK</h2>
-    <div class="row"><span class="k">ARETE</span><span class="tag">not yet</span></div>
-    <p class="empty">Work done will pay ARETE on PRAXIS's ledger; asking the network will spend it.</p>
+    <div class="now"><div class="big" id="balance">0</div><div class="sub">ARETE · <span id="earned"></span> earned · <span id="allowance"></span></div></div>
+    <input type="text" id="ask" placeholder="Ask the household's mind something short" maxlength="200" style="margin-top:12px">
+    <div class="btns"><button class="primary" id="askGo">Ask</button><span class="sub" id="askCost"></span></div>
+    <div id="answer" class="answer"></div>
+    <div class="err" id="askErr"></div>
   </section>
 
   <section class="wide">
@@ -129,26 +140,56 @@ function draw(v) {
   $("who").textContent = `${v.name} · node ${v.id}`;
   $("ffmpeg").textContent = v.machine.ffmpeg ? "ffmpeg found" : "needs ffmpeg"; $("ffmpeg").className = "tag" + (v.machine.ffmpeg ? " ok" : "");
   if (!editing) {
-    $("processing").checked = v.work.processing;
+    $("processing").checked = v.work.processing; $("thinking").checked = v.work.thinking;
+    $("batteryFloor").value = v.batteryFloor === null ? "never" : String(v.batteryFloor); $("diskMinGb").value = v.diskMinGb;
     for (const r of document.querySelectorAll("input[name=mode]")) r.checked = r.value === v.mode;
     $("idleMin").value = v.idleMin; $("from").value = v.hours.from; $("to").value = v.hours.to;
     $("most").value = v.most; $("most").max = v.maxMost; $("maxMost").textContent = `of ${v.maxMost} at most`;
     if (!$("hub").value) $("hub").value = v.hub;
   }
+  const t = v.think, chk = t.check;
+  $("thinkTag").textContent = !t.found.length ? "no model found" : t.lending ? "lending" : chk && chk.model === t.model && !chk.ok ? "too slow" : "model found";
+  $("thinkTag").className = "tag" + (t.lending ? " ok" : "");
+  $("thinkWhat").textContent = t.found.length ? `${t.found.map((f) => f.server).join(", ")} on this computer${chk && chk.model === t.model ? ` · answered in ${(chk.ms / 1000).toFixed(1)} s` : ""}`
+                                               : "start Ollama, LM Studio or an MLX server, and it is found within a minute";
+  $("thinking").disabled = !t.found.length;
+  $("thinkPick").style.display = t.found.length ? "" : "none";
+  const opts = t.found.flatMap((f) => f.models);
+  if ($("thinkModel").dataset.k !== opts.join("|")) { $("thinkModel").innerHTML = opts.map((m) => `<option>${m.replace(/[<&]/g, "")}</option>`).join(""); $("thinkModel").dataset.k = opts.join("|"); }
+  $("thinkModel").value = t.model;
+  $("sandbox").textContent = v.sandbox === "none" ? "its own folder" : v.sandbox;
+  $("sandbox").title = v.sandbox === "none" ? "no sandbox on this system yet" : "no network, writes only in the job's folder, your home unreadable";
+  $("sandbox").className = "tag" + (v.sandbox === "none" ? "" : " ok");
+  $("memRest").textContent = v.memRestPct;
+  $("balance").textContent = v.arete.balance; $("earned").textContent = v.arete.earned;
+  $("allowance").textContent = `${v.arete.allowanceLeft} of ${v.arete.allowance} free asks left today`;
+  $("askCost").textContent = v.arete.allowanceLeft ? "free today" : "1 ARETE";
   $("household").innerHTML = v.paired ? `<span class="tag ok">paired</span> ${v.hub.replace(/^https?:\/\//, "")}` : `<span class="tag">not paired</span>`;
   $("pairBox").style.display = v.paired ? "none" : ""; $("forgetBox").style.display = v.paired ? "" : "none";
   $("cores").textContent = v.machine.cores; $("speed").textContent = v.machine.speed; $("power").textContent = v.machine.power;
   $("mem").textContent = v.readings.memFreePct == null ? "unknown" : `${v.readings.memFreePct}% of ${v.machine.memGb} GB`;
   $("idle").textContent = mins(v.readings.idleSec); $("ac").textContent = v.readings.onPower == null ? "unknown" : v.readings.onPower ? "yes" : "battery";
   $("done").innerHTML = v.done.length
-    ? `<table><tr><th>When</th><th>Job</th><th>Took</th><th></th></tr>${v.done.map((d) => `<tr><td>${new Date(d.at).toLocaleTimeString()}</td><td>${d.title.replace(/[<&]/g, "")}</td><td>${(d.ms / 1000).toFixed(1)} s</td><td>${d.ok ? '<span class="tag ok">done</span>' : `<span class="tag">failed</span> ${(d.error || "").replace(/[<&]/g, "")}`}</td></tr>`).join("")}</table>`
+    ? `<table><tr><th>When</th><th>Job</th><th>Took</th><th>ARETE</th><th></th></tr>${v.done.map((d) => `<tr><td>${new Date(d.at).toLocaleTimeString()}</td><td>${d.kind === "think" ? "a thought" : d.title.replace(/[<&]/g, "")}</td><td>${(d.ms / 1000).toFixed(1)} s</td><td>${d.arete ? "+" + d.arete : ""}</td><td>${d.ok ? '<span class="tag ok">done</span>' : `<span class="tag">failed</span> ${(d.error || "").replace(/[<&]/g, "")}`}</td></tr>`).join("")}</table>`
     : `<p class="empty">No jobs yet. THE MESH gives work to the node with the most potential free, so a quiet hour is normal.</p>`;
 }
 const refresh = () => fetch("/api/state").then((r) => r.json()).then(draw).catch(() => { $("state").textContent = "The agent is not running"; });
 const settings = (b) => post("/api/settings", b).then(draw);
 $("processing").onchange = (e) => settings({ processing: e.target.checked });
 for (const r of document.querySelectorAll("input[name=mode]")) r.onchange = () => settings({ mode: r.value });
-for (const id of ["idleMin", "from", "to", "most"]) {
+$("thinking").onchange = (e) => settings({ thinking: e.target.checked });
+$("thinkModel").onchange = (e) => settings({ thinkModel: e.target.value });
+$("batteryFloor").onchange = (e) => settings({ batteryFloor: e.target.value === "never" ? "never" : Number(e.target.value) });
+const askNow = () => {
+  const text = $("ask").value.trim(); if (!text) return;
+  $("askErr").textContent = ""; $("answer").textContent = "Thinking…"; $("askGo").disabled = true;
+  post("/api/ask", { text }).then((r) => { const q = document.createElement("q"); q.textContent = r.answer;
+    $("answer").replaceChildren(q, Object.assign(document.createElement("span"), { className: "sub", textContent: `${r.by ?? "the household"}${r.ms ? ` · ${(r.ms / 1000).toFixed(1)} s` : ""}${r.spent ? ` · ${r.spent} ARETE` : " · free"}` }));
+    $("ask").value = ""; refresh(); })
+  .catch((e) => { $("answer").textContent = ""; $("askErr").textContent = e.message; }).finally(() => ($("askGo").disabled = false));
+};
+$("askGo").onclick = askNow; $("ask").onkeydown = (e) => { if (e.key === "Enter") askNow(); };
+for (const id of ["idleMin", "from", "to", "most", "diskMinGb"]) {
   $(id).onfocus = () => (editing = true);
   $(id).onchange = (e) => { editing = false; settings({ [id]: Number(e.target.value) }); };
 }

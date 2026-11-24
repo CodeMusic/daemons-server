@@ -11,6 +11,9 @@ export type Config = {
   hub: string;            // the household's hub, http://<hub>:4730
   key: string;            // the paired key ("" until paired)
   mode: Mode; idleMin: number; hours: Hours; memRestPct: number;
+  batteryFloor: number | null;   // null: never on battery (C-540)
+  diskMinGb: number;
+  think: { url: string; model: string };   // the local model lent as a thinker ("" until found, C-542)
   most: number;           // jobs at once (CPU cap: half the cores, at most)
   work: Work;
   commons: false;         // THE COMMONS: not yet (SERVER.md 5)
@@ -24,7 +27,8 @@ const FILE = join(DIR, "config.json");
 
 export const defaults = (): Config => ({
   name: hostname().replace(/\.local$/, "").slice(0, 40), hub: "http://daemons-hearth:4730", key: "",
-  mode: "idle-plugged", idleMin: 5, hours: { from: 1, to: 6 }, memRestPct: 20,
+  mode: "idle-plugged", idleMin: 5, hours: { from: 1, to: 6 }, memRestPct: 20, batteryFloor: null, diskMinGb: 5,
+  think: { url: "", model: "" },
   most: Math.max(1, Math.floor(cpus().length / 4)),
   work: { processing: true, builds: false, thinking: false, memory: false }, commons: false,
 });
@@ -43,14 +47,19 @@ export function save(c: Config) {
 
 // what the owner may change from the dashboard, checked; anything else is ignored
 export function apply(c: Config, p: Record<string, unknown>): Config {
-  const n = { ...c, hours: { ...c.hours }, work: { ...c.work } };
+  const n = { ...c, hours: { ...c.hours }, work: { ...c.work }, think: { ...c.think } };
   if (p.mode === "idle-plugged" || p.mode === "scheduled" || p.mode === "always") n.mode = p.mode;
   const int = (v: unknown, lo: number, hi: number) => { const x = Math.round(Number(v)); return Number.isFinite(x) ? Math.max(lo, Math.min(hi, x)) : null; };
   const im = int(p.idleMin, 1, 120); if (im !== null && p.idleMin !== undefined) n.idleMin = im;
   const hf = int(p.from, 0, 23); if (hf !== null && p.from !== undefined) n.hours.from = hf;
   const ht = int(p.to, 0, 23); if (ht !== null && p.to !== undefined) n.hours.to = ht;
   const mm = int(p.most, 1, Math.max(1, Math.floor(cpus().length / 2))); if (mm !== null && p.most !== undefined) n.most = mm;
-  if (typeof p.processing === "boolean") n.work.processing = p.processing;   // the only kind built yet
+  if (typeof p.processing === "boolean") n.work.processing = p.processing;
+  if (typeof p.thinking === "boolean") n.work.thinking = p.thinking;          // builds and memory: not built yet
+  if (p.batteryFloor === "never" || p.batteryFloor === null) n.batteryFloor = null;
+  else if (p.batteryFloor !== undefined) { const b = int(p.batteryFloor, 10, 100); if (b !== null) n.batteryFloor = b; }
+  const dm = int(p.diskMinGb, 1, 500); if (dm !== null && p.diskMinGb !== undefined) n.diskMinGb = dm;
+  if (typeof p.thinkModel === "string") n.think.model = p.thinkModel.replace(/[^A-Za-z0-9._:\/@-]/g, "").slice(0, 120);
   if (typeof p.name === "string" && p.name.trim()) n.name = p.name.replace(/[^A-Za-z0-9 ._-]/g, "").slice(0, 40) || n.name;
   return n;
 }
