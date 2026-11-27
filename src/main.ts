@@ -1,10 +1,13 @@
 // DAEMONS Server (DRAFT name): the agent. One process -- the WHEN loop, the workers (processing, thinking), ARETE's
-// ledger and the dashboard on 127.0.0.1 only. SERVER.md in the companion is the design.
+// ledger, THE HOARD's node and the dashboard on 127.0.0.1 only. SERVER.md in the companion is the design.
+// One thing here listens beyond this machine, and only while its owner offers storage: THE HOARD's door (C-575).
 import { createServer, type IncomingMessage } from "node:http";
 import { readFileSync } from "node:fs";
 import { cpus, totalmem } from "node:os";
 import { decide, load as loadAvg, read, type Verdict } from "./conditions.ts";
-import { apply, load, save, DIR, type Config } from "./config.ts";
+import { apply, idOf, load, save, DIR, type Config } from "./config.ts";
+import { Storage, places, type Place } from "./hoard.ts";
+import { FOLDER } from "./hoardnode.ts";
 import { MeshWorker, pair } from "./mesh.ts";
 import { sandboxKind } from "./sandbox.ts";
 import { findModels, measure, think, type Found } from "./think.ts";
@@ -16,7 +19,6 @@ let cfg: Config = load();
 let pausedUntil = 0;
 let verdict: Verdict = { work: false, why: "starting" };
 const say = (...a: unknown[]) => console.log(new Date().toISOString(), ...a);
-const idOf = (c: Config) => `server-${c.name.toLowerCase().replace(/[^a-z0-9._-]/g, "-")}`.slice(0, 40);
 const worker = new MeshWorker(() => cfg.hub.replace(/\/+$/, ""), () => cfg.key, () => idOf(cfg), () => cfg.name);
 const ledger = new Ledger(DIR);
 const power = () => Math.round(worker.cores * worker.speed * 10) / 10;
@@ -75,6 +77,15 @@ async function tick() {
 setInterval(() => void tick(), 2000);
 void tick();
 
+// ---- THE HOARD: the storage this computer offers, on a WHEN of its own; PAUSE rests it too (C-575) ----
+const storage = new Storage({ cfg: () => cfg, paused: () => Date.now() < pausedUntil, log: say,
+  keep: (leaving) => { cfg = { ...cfg, hoard: { ...cfg.hoard, leaving } }; save(cfg); } });   // a leaving outlives the agent
+setInterval(() => void storage.sync(), 15_000);            // a drive comes back, a port frees, a leaving node empties
+// a change is not waited on for long: taking an offer back waits on the hub, and the page wants its answer
+const soon = (p: Promise<unknown>, ms = 2000) => Promise.race([p, new Promise((ok) => setTimeout(ok, ms))]);
+let offerable: { at: number; v: Place[] } = { at: 0, v: [] };
+const placesNow = () => (Date.now() - offerable.at > 10_000 ? (offerable = { at: Date.now(), v: places() }).v : offerable.v);
+
 // ---- ASK: one prompt to the household, the day's allowance first, then ARETE (C-544) ----
 async function ask(text: string) {
   if (!cfg.key) throw new Error("pair with a household first");
@@ -102,6 +113,7 @@ function state() {
     think: { ...cfg.think, found: models.map((f) => ({ server: f.server, models: f.models })), check: thinkCheck, lending: !!worker.thinker },
     machine: { cores: worker.cores, speed: worker.speed, power: power(), memGb: Math.round(totalmem() / 2 ** 30), ffmpeg: !!worker.ffmpeg, platform: process.platform },
     mesh: { holds: worker.holds, lastHeard: worker.lastHeard, lastError: worker.lastError },
+    hoard: { ...cfg.hoard, ...storage.state(), places: placesNow(), keepsTo: FOLDER },
     arete: { balance: ledger.balance(), earned: ledger.earned(), allowanceLeft: ledger.allowanceLeft(), allowance: RATES.allowancePerDay,
              recent: ledger.entries.slice(-8).reverse() },
     done: worker.done, dir: DIR,
@@ -125,26 +137,35 @@ const server = createServer(async (req, res) => {
     if (req.method === "GET" && path === "/") return send(200, readFileSync(PAGE, "utf8"), "text/html; charset=utf-8");
     if (req.method === "GET" && path === "/api/state") return send(200, state());
     if (req.method === "POST" && path === "/api/settings") {
-      const was = cfg; cfg = apply(cfg, await body(req)); save(cfg);
+      const was = cfg, problems: string[] = [];
+      cfg = apply(cfg, await body(req), problems); save(cfg);
       if (was.work.thinking !== cfg.work.thinking || was.think.model !== cfg.think.model) await lookForModels();
       if (was.work.builds !== cfg.work.builds) await lookForBuilder();
-      return send(200, state());
+      await soon(storage.sync());
+      return send(200, { ...state(), problems });          // what was refused or changed on the way in, for the page to say
     }
     if (req.method === "POST" && path === "/api/pause") {
       const b = await body(req), mins = Number(b.minutes);
       pausedUntil = mins > 0 ? Date.now() + mins * 60_000 : 0;
-      void tick(); return send(200, state());
+      void tick(); void storage.node?.beat();              // the hub hears the rest, or its end, now
+      return send(200, state());
     }
+    // a leaving node's owner will not wait for its files to move: its door closes now, the leaving is over, and they stay in its folder
+    if (req.method === "POST" && path === "/api/hoard/close") { if (!cfg.hoard.on) await soon(storage.stop(true)); return send(200, state()); }
     if (req.method === "POST" && path === "/api/ask") return send(200, await ask(String((await body(req)).text ?? "")));
     if (req.method === "POST" && path === "/api/pair") {
       const b = await body(req);
       const hub = typeof b.hub === "string" && /^https?:\/\/[A-Za-z0-9.-]+(:\d+)?\/?$/.test(b.hub) ? b.hub : cfg.hub;
       const key = await pair(hub, String(b.code ?? ""), cfg.name);
       cfg = { ...cfg, hub, key }; save(cfg); say(`paired with ${hub}`);
+      await soon(storage.sync());
       return send(200, state());
     }
-    if (req.method === "POST" && path === "/api/forget") { cfg = { ...cfg, key: "" }; save(cfg); return send(200, state()); }
+    if (req.method === "POST" && path === "/api/forget") { cfg = { ...cfg, key: "" }; save(cfg); await soon(storage.sync()); return send(200, state()); }
     send(404, { error: "no such page" });
   } catch (e) { send(400, { error: (e as Error).message }); }
 });
-server.listen(PORT, "127.0.0.1", () => say(`DAEMONS Server: ${cfg.name}, the dashboard at http://127.0.0.1:${PORT}/ (settings in ${DIR}; jobs in ${SANDBOX})`));
+await storage.sync();
+server.listen(PORT, "127.0.0.1", () => say(`DAEMONS Server: ${cfg.name}, the dashboard at http://127.0.0.1:${PORT}/ (settings in ${DIR}; jobs in ${SANDBOX}; ${storage.said()})`));
+// ending: THE HOARD's door is closed and its offer stands (the hub waits for this node to return)
+for (const sig of ["SIGINT", "SIGTERM"] as const) process.on(sig, () => { void soon(storage.stop(), 3000).then(() => process.exit(0)); });

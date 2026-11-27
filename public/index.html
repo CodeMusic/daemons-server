@@ -48,6 +48,12 @@
   select { font:inherit; color:inherit; background:var(--card); border:1px solid var(--line); border-radius:6px; padding:3px 6px; max-width:200px }
   .answer { margin-top:10px; font-size:14px }
   .answer q { display:block; font-style:italic; margin-bottom:4px }
+  .cols { display:grid; gap:4px 28px; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)) }
+  .lbl { color:var(--mute); font-size:11px; letter-spacing:.14em; margin:14px 0 6px }
+  .row small { display:block; color:var(--mute); font-size:12px }
+  .v { text-align:right; overflow-wrap:anywhere }
+  .note { color:var(--mute); font-size:13px; margin:14px 0 0 }
+  code { font:12px ui-monospace, SFMono-Regular, Menlo, monospace }
 </style>
 </head>
 <body>
@@ -120,6 +126,47 @@
   </section>
 
   <section class="wide">
+    <h2>THE HOARD</h2>
+    <div class="cols">
+      <div>
+        <label class="sw"><span>Offer storage to THE HOARD <small>the household's own storage, kept on its own computers</small></span>
+          <span style="white-space:nowrap"><span class="tag" id="hoardTag"></span> <input type="checkbox" id="hoardOn"></span></label>
+        <div class="lbl">WHERE</div>
+        <div class="modes" id="hoardPlaces"></div>
+        <input type="text" id="hoardDir" placeholder="or another folder: its whole path" style="margin-top:6px">
+        <div class="row" style="margin-top:8px"><span class="k">The most to share</span><span><input type="number" id="hoardGb" min="0.001" step="any" style="width:90px"> GB <span class="sub" id="hoardRoom"></span></span></div>
+        <div class="lbl">HOW</div>
+        <div class="modes">
+          <label><input type="radio" name="hoardKind" value="extend"><span>EXTEND <small>adds its room to THE HOARD: a 1 TB hoard and 1 TB here make 2 TB</small></span></label>
+          <label><input type="radio" name="hoardKind" value="replica"><span>REPLICA <small>adds no room: keeps a copy of the files here, so they can still be reached while another source is offline</small></span></label>
+        </div>
+        <div class="lbl">WHEN</div>
+        <label class="sw"><span>At any time</span><input type="checkbox" id="hoardAny"></label>
+        <label class="sw"><span>Only on Wi-Fi <small>or a cable: never over a phone's data</small></span><input type="checkbox" id="hoardWifiOnly"></label>
+        <label class="sw"><span>Only while plugged in</span><input type="checkbox" id="hoardPluggedOnly"></label>
+        <div class="row" style="margin-top:8px"><span class="k">This internet's upload <small>leave empty if you do not know</small></span><span><input type="number" id="hoardUp" min="0.1" step="any"> megabits a second</span></div>
+        <div class="row"><span class="k">Its door's port</span><span><input type="number" id="hoardPort" min="1024" max="65535" style="width:90px"></span></div>
+        <div class="err" id="hoardErr"></div>
+      </div>
+      <div>
+        <div class="row"><span class="k">Now</span><span class="v" id="hoardNow"></span></div>
+        <div class="btns" id="hoardCloseBox" style="display:none; margin:0 0 10px"><button id="hoardClose">Close its door now</button><span class="sub">its files stay in its folder, out of reach until the offer is on again</span></div>
+        <div class="row"><span class="k">Holds</span><span class="v" id="hoardHolds"></span></div>
+        <div class="row"><span class="k">Its folder</span><span class="v" id="hoardFolder"></span></div>
+        <div class="row"><span class="k">Its door</span><span class="v" id="hoardDoors"></span></div>
+        <div class="row"><span class="k">Connection, as read</span><span class="v" id="hoardLink"></span></div>
+        <div class="row"><span class="k">The hub heard it</span><span class="v" id="hoardHeard"></span></div>
+        <div class="err" id="hoardLast"></div>
+        <div class="lbl">LATELY</div>
+        <div id="hoardMoved"></div>
+      </div>
+    </div>
+    <p class="note">THE HOARD keeps to a folder of its own, <code id="hoardKeeps">daemons-hoard</code>, inside the one you choose. It never reads or removes anything else there.
+      Switching the offer off moves its files to other nodes first; only then are they removed here.
+      Its door is the one thing on this computer that other devices can reach, and only while the offer is on: it hands a file only to a holder of a ticket the hub signed.</p>
+  </section>
+
+  <section class="wide">
     <h2>WHAT IT DID</h2>
     <div id="done"></div>
   </section>
@@ -131,6 +178,56 @@ const post = (p, b) => fetch(p, { method: "POST", headers: { "content-type": "ap
   .then(async (r) => { const j = await r.json(); if (!r.ok) throw new Error(j.error || r.status); return j; });
 const ago = (t) => { const x = Math.round((Date.now() - t) / 1000); return x < 60 ? `${x} s ago` : `${Math.round(x / 60)} min ago`; };
 const mins = (sec) => sec == null ? "unknown" : sec < 60 ? `${sec} s` : `${Math.floor(sec / 60)} min`;
+const size = (n) => { const u = ["B", "KB", "MB", "GB", "TB"]; let i = 0, x = Math.max(0, n); while (x >= 1000 && i < u.length - 1) { x /= 1000; i++; } return `${i === 0 ? x : x >= 100 ? Math.round(x) : Math.round(x * 10) / 10} ${u[i]}`; };
+const files = (n) => `${n} file${n === 1 ? "" : "s"}`;
+const LINKS = { ethernet: "Ethernet", wifi: "Wi-Fi", cell: "a phone's data", other: "not known" };
+const WAYS = { in: "kept", out: "handed back to the hub", served: "handed out" };
+let hEdit = false;
+
+// THE HOARD (C-575): the offer, and what its node says of itself
+function drawHoard(h) {
+  const n = h.node, rests = n ? n.rests : "";
+  const tag = h.leaving ? "taking it back" : !h.on ? "off" : !h.running ? "not offering" : rests ? "resting" : "offering";
+  $("hoardTag").textContent = tag; $("hoardTag").className = "tag" + (tag === "offering" ? " ok" : "");
+  $("hoardOn").checked = h.on;
+  for (const r of document.querySelectorAll("input[name=hoardKind]")) r.checked = r.value === h.kind;
+  $("hoardAny").checked = !h.wifiOnly && !h.pluggedOnly; $("hoardWifiOnly").checked = h.wifiOnly; $("hoardPluggedOnly").checked = h.pluggedOnly;
+  if (!hEdit) { $("hoardDir").value = h.dir; $("hoardGb").value = h.gb; $("hoardUp").value = h.up ?? ""; $("hoardPort").value = h.port; }
+  $("hoardRoom").textContent = h.dir ? `of ${size(h.room)} there` : "";
+  $("hoardKeeps").textContent = h.keepsTo;
+  // the places to choose from: drawn again only when the list or its free space changed
+  const key = h.places.map((p) => `${p.path}|${size(p.free)}`).join("\n");
+  if ($("hoardPlaces").dataset.k !== key) {
+    $("hoardPlaces").replaceChildren(...h.places.map((p) => {
+      const l = document.createElement("label"), i = Object.assign(document.createElement("input"), { type: "radio", name: "hoardPlace", value: p.path });
+      const t = document.createElement("span"), sm = document.createElement("small");
+      i.onchange = () => settings({ hoardDir: p.path });
+      t.textContent = p.what === "home" ? "Your home folder" : p.path;
+      sm.textContent = `${p.what === "home" ? `${p.path} · ` : ""}${size(p.free)} free of ${size(p.total)}`;
+      t.append(sm); l.append(i, t); return l;
+    }));
+    $("hoardPlaces").dataset.k = key;
+  }
+  for (const r of document.querySelectorAll("input[name=hoardPlace]")) r.checked = r.value === h.dir;
+  $("hoardNow").textContent =
+    h.leaving && h.running ? `Taking its offer back: ${files(h.files)} still here, moving to other nodes. Its door stays open until they are safe elsewhere.${rests ? ` Resting now: ${rests}.` : ""}`
+    : h.leaving ? `Taking its offer back, but its door is closed: ${h.why || "starting"}. ${files(h.files)} still here.`
+    : !h.on ? (h.files ? `Off. Its folder still holds ${files(h.files)} (${size(h.used)}): switch the offer on and they can be reached, or moved, again.` : "Off")
+    : !h.running ? `Not offering: ${h.why || "starting"}`
+    : rests ? `Resting: ${rests}`
+    : `${n && n.moving ? n.moving[0].toUpperCase() + n.moving.slice(1) : "Offering"}${n && n.traffic ? ` · ${n.traffic} at its door` : ""}`;
+  $("hoardCloseBox").style.display = h.leaving ? "" : "none";
+  $("hoardHolds").textContent = h.dir ? `${files(h.files)} · ${size(h.used)} of ${size(h.gb * 1e9)}` : "nothing yet";
+  $("hoardFolder").textContent = h.folder || "not chosen yet";
+  $("hoardDoors").textContent = !n ? "closed" : rests ? "resting: it hands nothing out" : n.doors.join(", ") || "open, at no address it can name";
+  $("hoardLink").textContent = n && n.lastHeard ? LINKS[n.link] || n.link : n ? "not read yet" : "";
+  $("hoardHeard").textContent = n && n.lastHeard ? ago(n.lastHeard) : n ? "not yet" : "";
+  $("hoardLast").textContent = n ? n.lastError : "";
+  const moved = n ? n.moved : [];
+  $("hoardMoved").innerHTML = moved.length
+    ? `<table><tr><th>When</th><th>What</th><th>Size</th><th>Took</th></tr>${moved.map((m) => `<tr><td>${new Date(m.at).toLocaleTimeString()}</td><td>${WAYS[m.way] || ""} ${String(m.sha).slice(0, 8).replace(/[^0-9a-f]/g, "")}</td><td>${size(m.bytes)}</td><td>${(m.ms / 1000).toFixed(1)} s</td></tr>`).join("")}</table>`
+    : `<p class="empty">Nothing has moved yet.</p>`;
+}
 
 function draw(v) {
   s = v;
@@ -178,9 +275,11 @@ function draw(v) {
   $("done").innerHTML = v.done.length
     ? `<table><tr><th>When</th><th>Job</th><th>Took</th><th>ARETE</th><th></th></tr>${v.done.map((d) => `<tr><td>${new Date(d.at).toLocaleTimeString()}</td><td>${d.kind === "think" ? "a thought" : d.title.replace(/[<&]/g, "")}</td><td>${(d.ms / 1000).toFixed(1)} s</td><td>${d.arete ? "+" + d.arete : ""}</td><td>${d.ok ? '<span class="tag ok">done</span>' : `<span class="tag">failed</span> ${(d.error || "").replace(/[<&]/g, "")}`}</td></tr>`).join("")}</table>`
     : `<p class="empty">No jobs yet. THE MESH gives work to the node with the most potential free, so a quiet hour is normal.</p>`;
+  drawHoard(v.hoard);
 }
 const refresh = () => fetch("/api/state").then((r) => r.json()).then(draw).catch(() => { $("state").textContent = "The agent is not running"; });
-const settings = (b) => post("/api/settings", b).then(draw);
+// what was refused, or changed on the way in, is said under THE HOARD's settings (the only ones that can be)
+const settings = (b) => post("/api/settings", b).then((v) => { $("hoardErr").textContent = (v.problems || []).join(" · "); draw(v); });
 $("processing").onchange = (e) => settings({ processing: e.target.checked });
 for (const r of document.querySelectorAll("input[name=mode]")) r.onchange = () => settings({ mode: r.value });
 $("thinking").onchange = (e) => settings({ thinking: e.target.checked });
@@ -200,6 +299,16 @@ for (const id of ["idleMin", "from", "to", "most", "diskMinGb"]) {
   $(id).onfocus = () => (editing = true);
   $(id).onchange = (e) => { editing = false; settings({ [id]: Number(e.target.value) }); };
 }
+$("hoardOn").onchange = (e) => settings({ hoardOn: e.target.checked });
+for (const r of document.querySelectorAll("input[name=hoardKind]")) r.onchange = () => settings({ hoardKind: r.value });
+$("hoardAny").onchange = () => settings({ hoardWifiOnly: false, hoardPluggedOnly: false });
+$("hoardWifiOnly").onchange = (e) => settings({ hoardWifiOnly: e.target.checked });
+$("hoardPluggedOnly").onchange = (e) => settings({ hoardPluggedOnly: e.target.checked });
+for (const id of ["hoardDir", "hoardGb", "hoardUp", "hoardPort"]) {
+  $(id).onfocus = $(id).oninput = () => (hEdit = true); $(id).onblur = () => (hEdit = false);
+  $(id).onchange = (e) => { hEdit = false; const v = e.target.value.trim(); settings({ [id]: id === "hoardDir" || v === "" ? v : Number(v) }); };
+}
+$("hoardClose").onclick = () => post("/api/hoard/close").then(draw);
 for (const b of document.querySelectorAll("[data-pause]")) b.onclick = () => post("/api/pause", { minutes: Number(b.dataset.pause) }).then(draw);
 $("pair").onclick = () => { $("pairErr").textContent = ""; post("/api/pair", { hub: $("hub").value.trim(), code: $("code").value }).then(draw).catch((e) => ($("pairErr").textContent = e.message)); };
 $("forget").onclick = () => post("/api/forget").then(draw);
